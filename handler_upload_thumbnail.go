@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,9 +47,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	mediaType := header.Header.Get("Content-Type")
-	if mediaType != "image/png" && mediaType != "image/jpeg" {
-		respondWithError(w, http.StatusBadRequest, "Thumbnail must be a PNG or JPEG image", nil)
+	mediaTypeHeader := header.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(mediaTypeHeader)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type header", err)
 		return
 	}
 
@@ -72,8 +76,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	filename := videoID.String() + fileExtension
+	randomBytes := make([]byte, 32)
+	_, err = rand.Read(randomBytes)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't generate random key", err)
+		return
+	}
 
+	token = base64.RawURLEncoding.EncodeToString(randomBytes)
+
+	filename := token + fileExtension
 	filePath := filepath.Join(cfg.assetsRoot, filename)
 
 	dst, err := os.Create(filePath)
