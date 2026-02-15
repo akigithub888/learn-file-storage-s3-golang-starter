@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -95,20 +94,52 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	aspectRatio, err := cfg.getVideoAspectRatio(tempfile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't determine aspect ratio", err)
+		return
+	}
+
+	var prefix string
+
+	switch aspectRatio {
+	case "16:9":
+		prefix = "landscape"
+	case "9:16":
+		prefix = "portrait"
+	default:
+		prefix = "other"
+	}
+
 	randomBytes := make([]byte, 32)
 	_, err = rand.Read(randomBytes)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't generate random key", err)
 		return
 	}
-	key := base64.RawURLEncoding.EncodeToString(randomBytes) + ".mp4"
+	randomKey := base64.RawURLEncoding.EncodeToString(randomBytes)
+	key := fmt.Sprintf("%s/%s.mp4", prefix, randomKey)
+
+	proccessedFilePath, err := processVideoForFastStart(tempfile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't process video for fast start", err)
+		return
+	}
+	defer os.Remove(proccessedFilePath)
+
+	proccessedFile, err := os.Open(proccessedFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't open processed file", err)
+		return
+	}
+	defer proccessedFile.Close()
 
 	_, err = cfg.s3Client.PutObject(
-		context.TODO(),
+		r.Context(),
 		&s3.PutObjectInput{
 			Bucket:      &cfg.s3Bucket,
 			Key:         &key,
-			Body:        tempfile,
+			Body:        proccessedFile,
 			ContentType: &mediaType,
 		},
 	)
