@@ -38,13 +38,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	metaData, err := cfg.db.GetVideo(videoID)
+	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't get video metadata", err)
 		return
 	}
 
-	if metaData.UserID != userID {
+	if video.UserID != userID {
 		respondWithError(w, http.StatusUnauthorized, "You are not the uploader of this video", nil)
 		return
 	}
@@ -147,18 +147,21 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't upload file to S3", err)
 		return
 	}
-	videoURL := fmt.Sprintf(
-		"https://%s.s3.%s.amazonaws.com/%s",
-		cfg.s3Bucket,
-		cfg.s3Region,
-		key,
-	)
-	metaData.VideoURL = &videoURL
-	err = cfg.db.UpdateVideo(metaData)
+
+	videoLocation := fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
+
+	video.VideoURL = &videoLocation
+	err = cfg.db.UpdateVideo(video)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video metadata", err)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, metaData)
+	video, err = cfg.dbVideoToSignedVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't generate signed video URL", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, video)
 }
